@@ -1,9 +1,6 @@
 #!/bin/bash
 
-mqtt_topic="mi_temp"
-mqtt_ip="192.168.1.60"
-
-sensors_file="/opt/sensors"
+sensors_file="/usr/lib/mi_temp/sensors"
 
 cel=$'\xe2\x84\x83'
 per="%"
@@ -32,14 +29,16 @@ while read -r item; do
     sensor=(${item//,/ })
     mac="${sensor[0]}"
     name="${sensor[1]}"
+    outputFile="${sensor[2]}"
     echo -e "\n${yellow}Sensor: $name ($mac)${nc}"
+    unset data
+    counter="0"
 
-    exit_code=1
-    until [ ${exit_code} -eq 0 ]; do
+    until [ -n "$data" ] || [ "$counter" -ge 5 ] ; do
+        counter=$((counter+1))
         echo -n "  Getting $name Temperature and Humidity... "
-        data=$(timeout 30 /usr/bin/gatttool -b "$mac" --char-write-req --handle=0x10 -n 0100 --listen 2>&1 | grep -m 1 "Notification")
-        exit_code=$?
-        if [ ${exit_code} -ne 0 ]; then
+        data=$(timeout 15 /usr/bin/gatttool -b "$mac" --char-write-req --handle=0x0038 -n 0100 --listen 2>&1 | grep -m 1 "Notification handle")
+        if [ -z "$data" ]; then
             echo -e "${red}failed, waiting 5 seconds before trying again${nc}"
             sleep 5
         else
@@ -47,49 +46,63 @@ while read -r item; do
         fi
     done
 
-    exit_code=1
-    until [ ${exit_code} -eq 0 ]; do
-        echo -n "  Getting $name Battery Level..."
-        battery=$(/usr/bin/gatttool -b "$mac" --char-read --handle=0x18 2>&1 | cut -c 34-35)
-        battery=${battery^^}
-        exit_code=$?
-        if [ ${exit_code} -ne 0 ]; then
-            echo -e "${red}failed, waiting 5 seconds before trying again${nc}"
-            sleep 5
-        else
-            echo -e "${green}success${nc}"
-        fi
-    done
-
-    temp=$(echo "$data" | tail -1 | cut -c 42-54 | xxd -r -p)
-    humid=$(echo "$data" | tail -1 | cut -c 64-74 | xxd -r -p)
-    batt=$(echo "ibase=16; $battery"  | bc)
+    temphexa=$(echo $data | awk -F ' ' '{print $7$6}'| tr [:lower:] [:upper:] )
+    temp=$(echo "ibase=16; $temphexa" | bc)
+    temp=$(echo "scale=2;$temp/100" | bc)
+    humhexa=$(echo $data | awk -F ' ' '{print $8}'| tr [:lower:] [:upper:])
+    humid=$(echo "ibase=16; $humhexa" | bc)
     dewp=$(echo "scale=1; (243.12 * (l( $humid / 100) +17.62* $temp/(243.12 + $temp)) / 17.62 - (l( $humid / 100) +17.62* $temp/(243.12 + $temp))  )" | bc -l)
+    battery=$(echo $data | awk -F ' ' '{print $10$9}'| tr [:lower:] [:upper:] )
+    batteryV=$(echo "ibase=16; $battery" | bc)
+    batteryV=$(echo "scale=2;$batteryV/1000" | bc)
+    batt=$(echo "($batteryV-2.1)*100" | bc)
     echo "  Temperature: $temp$cel"
     echo "  Humidity: $humid$per"
+    echo "  Battery Voltage: $batteryV V"
     echo "  Battery Level: $batt$per"
     echo "  Dew Point: $dewp$cel"
 
-    echo -e -n "  Publishing data via MQTT... "
+    #echo -e -n "  Publishing data to $outputFile... "
+    if grep -q "time:" $outputFile; then
+        sed -i "/time/s/:.*/:$(date)/" "$outputFile"
+    else
+        echo "time:$(date)" >> "$outputFile"
+    fi
     if [[ "$temp" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-        /usr/bin/mosquitto_pub -h $mqtt_ip -V mqttv311 -t "/$mqtt_topic/$name/temperature" -m "$temp"
+        if grep -q "temperature:" $outputFile; then
+                sed -i "/temperature/s/:.*/:$temp/" "$outputFile"
+        else
+                echo "temperature:$temp" >> "$outputFile"
+        fi
     fi
 
     if [[ "$humid" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-        /usr/bin/mosquitto_pub -h $mqtt_ip -V mqttv311 -t "/$mqtt_topic/$name/humidity" -m "$humid"
+        if grep -q "humidity:" $outputFile; then
+                sed -i "/humidity/s/:.*/:$humid/" "$outputFile"
+        else
+                echo "humidity:$humid" >> "$outputFile"
+        fi
     fi
 
     if [[ "$batt" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-        /usr/bin/mosquitto_pub -h $mqtt_ip -V mqttv311 -t "/$mqtt_topic/$name/battery" -m "$batt"
+        if grep -q "battery:" $outputFile; then
+                sed -i "/battery/s/:.*/:$batt/" "$outputFile"
+        else
+                echo "battery:$batt" >> "$outputFile"
+        fi
     fi
-    
+
     if [[ "$dewp" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-        /usr/bin/mosquitto_pub -h $mqtt_ip -V mqttv311 -t "/$mqtt_topic/$name/dewpoint" -m "$dewp"
+        if grep -q "dewpt:" $outputFile; then
+                sed -i "/dewpt/s/:.*/:$dewp/" "$outputFile"
+        else
+                echo "dewpt:$dewp" >> "$outputFile"
+        fi
     fi
     echo -e "done"
 done < "$sensors_file"
 
-#echo -e "\nclosing HCI device"
-#sudo hciconfig hci0 down
+echo -e "\nclosing HCI device"
+sudo hciconfig hci0 down
 
 echo "Finished"

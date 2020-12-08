@@ -1,5 +1,8 @@
 #!/bin/bash
 
+#mqtt_topic="mi_temp"
+#mqtt_ip="127.0.0.1"
+
 sensors_file="/usr/lib/mi_temp/sensors"
 
 cel=$'\xe2\x84\x83'
@@ -62,43 +65,66 @@ while read -r item; do
     echo "  Battery Level: $batt$per"
     echo "  Dew Point: $dewp$cel"
 
-    #echo -e -n "  Publishing data to $outputFile... "
-    if grep -q "time:" $outputFile; then
+
+    if [ -n "$outputFile" ]
+      echo -e -n "  Publishing data to $outputFile... "
+      if grep -q "time:" $outputFile; then
         sed -i "/time/s/:.*/:$(date)/" "$outputFile"
-    else
+      else
         echo "time:$(date)" >> "$outputFile"
-    fi
-    if [[ "$temp" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+      fi
+      if [[ "$temp" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
         if grep -q "temperature:" $outputFile; then
                 sed -i "/temperature/s/:.*/:$temp/" "$outputFile"
         else
                 echo "temperature:$temp" >> "$outputFile"
         fi
-    fi
+      fi
 
-    if [[ "$humid" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+      if [[ "$humid" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
         if grep -q "humidity:" $outputFile; then
                 sed -i "/humidity/s/:.*/:$humid/" "$outputFile"
         else
                 echo "humidity:$humid" >> "$outputFile"
         fi
-    fi
+      fi
 
-    if [[ "$batt" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+      if [[ "$batt" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
         if grep -q "battery:" $outputFile; then
                 sed -i "/battery/s/:.*/:$batt/" "$outputFile"
         else
                 echo "battery:$batt" >> "$outputFile"
         fi
-    fi
+      fi
 
-    if [[ "$dewp" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+      if [[ "$dewp" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
         if grep -q "dewpt:" $outputFile; then
                 sed -i "/dewpt/s/:.*/:$dewp/" "$outputFile"
         else
                 echo "dewpt:$dewp" >> "$outputFile"
         fi
+      fi
     fi
+    
+    if [ -n "$mqtt_topic" ]
+      echo -e -n "  Publishing data via MQTT... "
+      if [[ "$temp" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        /usr/bin/mosquitto_pub -h $mqtt_ip -V mqttv311 -t "/$mqtt_topic/$name/temperature" -m "$temp"
+      fi
+
+      if [[ "$humid" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        /usr/bin/mosquitto_pub -h $mqtt_ip -V mqttv311 -t "/$mqtt_topic/$name/humidity" -m "$humid"
+      fi
+
+      if [[ "$batt" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        /usr/bin/mosquitto_pub -h $mqtt_ip -V mqttv311 -t "/$mqtt_topic/$name/battery" -m "$batt"
+      fi
+    
+      if [[ "$dewp" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        /usr/bin/mosquitto_pub -h $mqtt_ip -V mqttv311 -t "/$mqtt_topic/$name/dewpoint" -m "$dewp"
+      fi
+    fi
+    
     echo -e "done"
 done < "$sensors_file"
 

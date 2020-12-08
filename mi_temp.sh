@@ -104,6 +104,7 @@ while read -r item; do
                 echo "dewpt:$dewp" >> "$outputFile"
         fi
       fi
+      echo -e "done"
     fi
     
     if [ -n "$mqtt_topic" ]; then
@@ -123,9 +124,9 @@ while read -r item; do
       if [[ "$dewp" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
         /usr/bin/mosquitto_pub -h $mqtt_ip -V mqttv311 -t "/$mqtt_topic/$name/dewpoint" -m "$dewp"
       fi
+      echo -e "done"
     fi
     
-    echo -e "done"
 done < "$sensors_file"
 
 echo -e "\nclosing HCI device"

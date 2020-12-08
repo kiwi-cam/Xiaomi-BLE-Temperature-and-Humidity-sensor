@@ -66,7 +66,7 @@ while read -r item; do
     echo "  Dew Point: $dewp$cel"
 
 
-    if [ -n "$outputFile" ]
+    if [ -n "$outputFile" ]; then
       echo -e -n "  Publishing data to $outputFile... "
       if grep -q "time:" $outputFile; then
         sed -i "/time/s/:.*/:$(date)/" "$outputFile"
@@ -106,7 +106,7 @@ while read -r item; do
       fi
     fi
     
-    if [ -n "$mqtt_topic" ]
+    if [ -n "$mqtt_topic" ]; then
       echo -e -n "  Publishing data via MQTT... "
       if [[ "$temp" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
         /usr/bin/mosquitto_pub -h $mqtt_ip -V mqttv311 -t "/$mqtt_topic/$name/temperature" -m "$temp"
